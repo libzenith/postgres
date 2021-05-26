@@ -62,6 +62,20 @@
 #include <sys/resource.h>
 #endif
 
+/* FIXME: play nice with autoconf? */
+#ifdef __linux__
+#define USE_SECCOMP 1
+#endif
+
+#if USE_SECCOMP
+#include <linux/seccomp.h>
+#include <linux/unistd.h>
+#include <linux/audit.h>
+#include <linux/filter.h>
+#include <sys/prctl.h>
+#endif
+
+
 #ifndef HAVE_GETRUSAGE
 #include "rusagestub.h"
 #endif
@@ -88,10 +102,72 @@ static void PushPage(StringInfo input_message);
 static void ApplyRecord(StringInfo input_message);
 static bool redo_block_filter(XLogReaderState *record, uint8 block_id);
 static void GetPage(StringInfo input_message);
+int enter_seccomp(void);
 
 static BufferTag target_redo_tag;
 
 #define TRACE DEBUG5
+
+/* A quick and dirty toolkit for hand-building a
+   BPF program that can filter syscalls. */
+
+#define ARCH_NR AUDIT_ARCH_X86_64
+
+#define syscall_nr (offsetof(struct seccomp_data, nr))
+#define arch_nr (offsetof(struct seccomp_data, arch))
+
+#define VALIDATE_ARCHITECTURE \
+	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, arch_nr), \
+	BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, ARCH_NR, 1, 0), \
+	BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_KILL)
+
+#define EXAMINE_SYSCALL \
+	BPF_STMT(BPF_LD+BPF_W+BPF_ABS, syscall_nr)
+
+#define ALLOW_SYSCALL(name) \
+	BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, __NR_##name, 0, 1), \
+	BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW)
+
+#define KILL_PROCESS \
+	BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_KILL)
+
+/* enter seccomp mode with a BPF filter that will only allow
+   certain syscalls to proceed */
+#if USE_SECCOMP
+int
+enter_seccomp(void)
+{
+	struct sock_filter filter[] = {
+		/* Validate architecture. */
+		VALIDATE_ARCHITECTURE,
+		/* Grab the system call number. */
+		EXAMINE_SYSCALL,
+		/* List allowed syscalls. */
+		ALLOW_SYSCALL(exit_group),
+		ALLOW_SYSCALL(exit),
+		ALLOW_SYSCALL(read),
+		ALLOW_SYSCALL(write),
+		ALLOW_SYSCALL(pselect6),
+		ALLOW_SYSCALL(brk),         // expand heap?
+		ALLOW_SYSCALL(newfstatat),  // ?
+		ALLOW_SYSCALL(mmap),        // allocate mem?
+		ALLOW_SYSCALL(munmap),      // deallocate mem?
+		KILL_PROCESS,
+	};
+	struct sock_fprog prog = {
+		.len = (unsigned short)(sizeof(filter)/sizeof(filter[0])),
+		.filter = filter,
+	};
+
+	if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
+		return 1;
+	}
+	if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &prog)) {
+		return 1;
+	}
+	return 0;
+}
+#endif
 
 /* ----------------------------------------------------------------
  * FIXME comment
@@ -243,6 +319,18 @@ WalRedoMain(int argc, char *argv[],
 	{
 		if (RmgrTable[rmid].rm_startup != NULL)
 			RmgrTable[rmid].rm_startup();
+	}
+
+	/* Enter Linux seccomp mode, which blocks most syscalls. */
+	if (USE_SECCOMP) {
+		int rv = enter_seccomp();
+		if (rv != 0) {
+			ereport(ERROR,
+				(errcode(ERRCODE_SYSTEM_ERROR),
+				 errmsg("prctl failed")));
+			proc_exit(1);
+		}
+		ereport(LOG, (errmsg("seccomp enabled")));
 	}
 
 	/*
