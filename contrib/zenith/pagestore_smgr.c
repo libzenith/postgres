@@ -56,6 +56,7 @@ page_server_api *page_server;
 char *page_server_connstring;
 char *callmemaybe_connstring;
 char *zenith_timeline;
+char *zenith_tenant;
 bool wal_redo = false;
 
 char const *const ZenithMessageStr[] =

@@ -90,6 +90,7 @@ extern page_server_api * page_server;
 extern char *page_server_connstring;
 extern char *callmemaybe_connstring;
 extern char *zenith_timeline;
+extern char *zenith_tenant;
 extern bool wal_redo;
 
 extern const f_smgr *smgr_zenith(BackendId backend, RelFileNode rnode);
