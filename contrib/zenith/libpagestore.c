@@ -81,7 +81,7 @@ zenith_connect()
 		PQclear(res);
 	}
 
-	query = psprintf("pagestream %s %s", zenith_timeline, zenith_tenant);
+	query = psprintf("pagestream %s %s", zenith_tenant, zenith_timeline);
 	ret = PQsendQuery(pageserver_conn, query);
 	if (ret != 1)
 		zenith_log(ERROR,
