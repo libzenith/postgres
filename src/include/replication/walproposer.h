@@ -23,6 +23,7 @@ struct WalMessage;
 typedef struct WalMessage WalMessage;
 
 extern char *zenith_timeline_walproposer;
+extern char *zenith_tenant_walproposer;
 
 /* WAL safekeeper state */
 typedef enum
@@ -59,6 +60,7 @@ typedef struct ServerInfo
 	XLogRecPtr walEnd;
     TimeLineID timeline;
 	int        walSegSize;
+	uint8      ztenantid[16];
 } ServerInfo;
 
 /*

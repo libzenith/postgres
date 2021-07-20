@@ -221,6 +221,7 @@ HandleWalKeeperResponse(void)
 }
 
 char *zenith_timeline_walproposer = NULL;
+char *zenith_tenant_walproposer = NULL;
 
 /*
  * WAL proposer bgworeker entry point
@@ -285,6 +286,13 @@ WalProposerMain(Datum main_arg)
 	if (*zenith_timeline_walproposer != '\0' &&
 	 !HexDecodeString(serverInfo.ztimelineid, zenith_timeline_walproposer, 16))
 		elog(FATAL, "Could not parse zenith.zenith_timeline, %s", zenith_timeline_walproposer);
+	
+	if (!zenith_tenant_walproposer)
+		elog(FATAL, "zenith.zenith_tenant is not provided");
+	if (*zenith_tenant_walproposer != '\0' &&
+	 !HexDecodeString(serverInfo.ztenantid, zenith_tenant_walproposer, 16))
+		elog(FATAL, "Could not parse zenith.zenith_tenant, %s", zenith_tenant_walproposer);
+
 	serverInfo.protocolVersion = SK_PROTOCOL_VERSION;
 	pg_strong_random(&serverInfo.nodeId.uuid, sizeof(serverInfo.nodeId.uuid));
 	serverInfo.systemId = GetSystemIdentifier();

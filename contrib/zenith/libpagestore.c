@@ -71,7 +71,7 @@ zenith_connect()
 	{
 		PGresult   *res;
 
-		query = psprintf("callmemaybe %s %s", zenith_timeline, callmemaybe_connstring);
+		query = psprintf("callmemaybe %s %s %s", zenith_tenant, zenith_timeline, callmemaybe_connstring);
 		res = PQexec(pageserver_conn, query);
 		if (PQresultStatus(res) != PGRES_COMMAND_OK)
 		{
@@ -81,7 +81,7 @@ zenith_connect()
 		PQclear(res);
 	}
 
-	query = psprintf("pagestream %s", zenith_timeline);
+	query = psprintf("pagestream %s %s", zenith_tenant, zenith_timeline);
 	ret = PQsendQuery(pageserver_conn, query);
 	if (ret != 1)
 		zenith_log(ERROR,
@@ -185,11 +185,11 @@ zenith_call(ZenithRequest request)
 
 
 static bool
-check_zenith_timeline(char **newval, void **extra, GucSource source)
+check_zenith_id(char **newval, void **extra, GucSource source)
 {
-	uint8		ztimelineid[16];
+	uint8		zid[16];
 
-	return **newval == '\0' || HexDecodeString(ztimelineid, *newval, 16);
+	return **newval == '\0' || HexDecodeString(zid, *newval, 16);
 }
 
 /*
@@ -223,7 +223,16 @@ _PG_init(void)
 							   "",
 							   PGC_POSTMASTER,
 							   0,	/* no flags required */
-							   check_zenith_timeline, NULL, NULL);
+							   check_zenith_id, NULL, NULL);
+
+	DefineCustomStringVariable("zenith.zenith_tenant",
+							   "Zenith tenantid the server is running on",
+							   NULL,
+							   &zenith_tenant,
+							   "",
+							   PGC_POSTMASTER,
+							   0,	/* no flags required */
+							   check_zenith_id, NULL, NULL);
 
 	DefineCustomBoolVariable("zenith.wal_redo",
 							 "start in wal-redo mode",
@@ -242,6 +251,7 @@ _PG_init(void)
 
 	/* Is there more correct way to pass CustomGUC to postgres code? */
 	zenith_timeline_walproposer = zenith_timeline;
+	zenith_tenant_walproposer = zenith_tenant;
 
 	if (wal_redo)
 	{
